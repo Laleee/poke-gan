@@ -74,7 +74,7 @@ class UNet(nn.Module):
         d7 = self.deconv7_bn(self.deconv7(F.relu(d6)))
         d7 = torch.cat([d7, e1], 1)
         d8 = self.deconv8(F.relu(d7))
-        o = F.tanh(d8)
+        o = nn.Tanh()(d8)
 
         return o
 

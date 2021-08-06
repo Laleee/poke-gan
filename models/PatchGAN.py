@@ -26,12 +26,12 @@ class PatchGAN(nn.Module):
     # forward method
     def forward(self, input_img, label):
         x = torch.cat([input_img, label], 1)
-        print("X ", x.size())
-        x = F.leaky_relu(self.conv1(input_img), 0.2)
+        x = F.leaky_relu(self.conv1(x), 0.2)
         x = F.leaky_relu(self.conv2_bn(self.conv2(x)), 0.2)
         x = F.leaky_relu(self.conv3_bn(self.conv3(x)), 0.2)
         x = F.leaky_relu(self.conv4_bn(self.conv4(x)), 0.2)
-        x = F.sigmoid(self.conv5(x))
+#        x = F.sigmoid(self.conv5(x))
+        x = self.conv5(x)
 
         return x
 
