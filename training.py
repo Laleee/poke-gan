@@ -1,16 +1,13 @@
-import PIL
-import numpy as np
+import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
-import torchvision
-from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
-import matplotlib.pyplot as plt
 
-from models.Unet import UNet
-from models.PatchGAN import PatchGAN
 from dataset import PokemonDataset
+from models.PatchGAN import PatchGAN
+from models.Unet import UNet
 
 IMG_SIZE = 256
 CHANNELS = 3
@@ -21,11 +18,11 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 CUDA = torch.cuda.is_available()
 
 LR = 2e-4
-EPOCHS = 60
+EPOCHS = 120
 BATCH_SIZE = 64
 NUM_WORKERS = 4
 CLIP_VALUE = 1e-1
-LAMBDA_L1 = 200
+LAMBDA_L1 = 100
 
 
 def train():
@@ -47,11 +44,12 @@ def train():
     criterion = nn.BCEWithLogitsLoss()
     criterion_L1 = nn.L1Loss()
 
+    c_times = 1
     for epoch in range(1, EPOCHS):
-        if epoch < 10:
-            c_times = 100
-        else:
-            c_times = 5
+        # if epoch < 10:
+        #     c_times = 100
+        # else:
+        #     c_times = 5
 
         for i, (poke_img_batch, edge_img_batch) in tqdm(enumerate(data_loader), total=total_iterations, desc=f"Epoch: {epoch}", unit="batches"):
             global_step = epoch * total_iterations + i
@@ -75,26 +73,41 @@ def train():
 
             optimizer_c.step()
 
-            for p in critic.parameters():
-                p.data.clamp_(-CLIP_VALUE, CLIP_VALUE)
+            # for p in critic.parameters():
+            #     p.data.clamp_(-CLIP_VALUE, CLIP_VALUE)
 
-            if i % c_times == 0:
-                optimizer_g.zero_grad()
+            #if i % c_times == 0:
+            for param in critic.parameters():
+                param.requires_grad = False
 
-                gen_imgs = generator(edge_img_batch)
-                pred_fake = critic(edge_img_batch, gen_imgs)
+            optimizer_g.zero_grad()
 
-                loss_g_GAN = criterion(pred_fake, torch.ones(pred_fake.size()).to(DEVICE))
-                loss_g_L1 = criterion_L1(gen_imgs, poke_img_batch)
-                loss_g = loss_g_GAN + LAMBDA_L1 * loss_g_L1
+            gen_imgs = generator(edge_img_batch)
+            pred_fake = critic(edge_img_batch, gen_imgs)
 
-                loss_g.backward()
+            loss_g_GAN = criterion(pred_fake, torch.ones(pred_fake.size()).to(DEVICE))
+            loss_g_L1 = criterion_L1(gen_imgs, poke_img_batch)
+            loss_g = loss_g_GAN + LAMBDA_L1 * loss_g_L1
 
-                optimizer_g.step()
+            loss_g.backward()
 
-                # summary_writer.add_image("Generated images", gen_imgs[0], global_step)
+            optimizer_g.step()
+
+            # summary_writer.add_image("Generated images", gen_imgs[0], global_step)
+            if i % 50 == 0:
+                summary_writer.add_images("Original images", poke_img_batch[:MAX_SUMMARY_IMAGES], global_step)
                 summary_writer.add_images("Generated images", gen_imgs[:MAX_SUMMARY_IMAGES], global_step)
-                summary_writer.add_scalar("Generator loss", loss_g, global_step)
+
+            summary_writer.add_scalar("Generator loss", loss_g, global_step)
+
+            for param in critic.parameters():
+                param.requires_grad = True
+
+        if epoch % 20 == 0:
+            torch.save(generator, f'generator_{epoch}')
+
+    torch.save(generator,  f'generator_final')
+
 
 
 def tensor_to_image(tensor):
