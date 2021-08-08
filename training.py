@@ -5,13 +5,14 @@ from Trainer import Trainer
 MAX_SUMMARY_IMAGES = 4
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+assert torch.cuda.is_available()
 
 LR = 2e-4
-EPOCHS = 120
+EPOCHS = 540
 BATCH_SIZE = 64
 NUM_WORKERS = 4
-LAMBDA_L1 = 100
-g
+LAMBDA_L1 = 85
+
 
 if __name__ == "__main__":
     trainer = Trainer(

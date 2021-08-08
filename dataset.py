@@ -16,7 +16,7 @@ class PokemonDataset(Dataset):
             [os.path.join(self.pokemons_root_path, f) for f in os.listdir(self.pokemons_root_path)
              if f.endswith('.jpg')])
 
-        self.edges_root_path = os.path.join(self.dataset_root_path, 'edge_jpg')
+        self.edges_root_path = os.path.join(self.dataset_root_path, 'sketch_jpg')
         self.edges_paths = sorted([os.path.join(self.edges_root_path, f) for f in os.listdir(self.edges_root_path)
                                    if f.endswith('.jpg')])
 

@@ -1,5 +1,6 @@
 import datetime
 import os.path
+from pathlib import Path
 
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -42,6 +43,10 @@ class Trainer:
         self.criterion_L1 = nn.L1Loss()
 
         self.epoch = 0
+
+        subfolder_name = datetime.datetime.now().strftime("%d_%H-%M")
+        self.output_path = os.path.join('trained_models', subfolder_name)
+        self.save_param_file()
 
     def train(self):
         self.generator.to(self.device)
@@ -110,14 +115,30 @@ class Trainer:
         for param in self.discriminator.parameters():
             param.requires_grad = True
 
+    def save_param_file(self):
+        """ Param file is used for trained models distinction.  """
+        # Create subfolder structure if it doesn't exist
+        Path(self.output_path).mkdir(parents=True, exist_ok=True)
+
+        path = os.path.join(self.output_path, 'params.txt')
+        with open(path, 'w') as f:
+            f.write(f'''
+            lr: {self.lr}
+            batch size: {self.batch_size}
+            lambda: {self.lambda_l1}
+            beta1: {self.betas[0]}
+            beta2: {self.betas[1]}
+            max epochs: {self.epochs}
+            ''')
+
     def save_model(self):
-        time_obj = datetime.datetime.now()
-        timestamp = time_obj.strftime("%d-%H:%M")
-        f = f'model_e{self.epoch}_lr{self.lr}_lambda{self.lambda_l1}_betas{self.betas}_{timestamp}.pth'
-        path = os.path.join('pretrained_models', f)
+        filename = f'model_epoch_{self.epoch}.pt'
+        path = os.path.join(self.output_path, filename)
 
         torch.save({
             'epoch': self.epoch,
+            'lr': self.lr,
+            'betas': self.betas,
             'generator_state_dict': self.generator.state_dict(),
             'optimizer_g_state_dict': self.optimizer_g.state_dict(),
             'discriminator_state_dict': self.discriminator.state_dict(),
