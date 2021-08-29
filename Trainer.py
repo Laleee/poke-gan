@@ -1,12 +1,13 @@
 import datetime
 import os.path
 from pathlib import Path
+from typing import Tuple
 
-from torch.utils.data import DataLoader
-from tqdm import tqdm
-from torch.utils.tensorboard import SummaryWriter
 import torch
 import torch.nn as nn
+from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
 
 from dataset import PokemonDataset
 from models.PatchGAN import PatchGAN
@@ -21,7 +22,7 @@ class Trainer:
         self.epochs: int = kwargs.get('epochs', 120)
         self.num_workers = kwargs.get('dataloader_num_workers', 4)
         self.device: str = kwargs.get('device', 'cpu')
-        self.betas = kwargs.get('betas', (0.5, 0.999))
+        self.betas: Tuple[float, float] = kwargs.get('betas', (0.5, 0.999))
 
         self.max_summary_images: int = kwargs.get('max_summary_images', 4)
         self.snapshot_n: int = kwargs.get('snapshot_n', 50)  # Save model each n epochs
@@ -34,26 +35,30 @@ class Trainer:
         self.optimizer_g = torch.optim.Adam(self.generator.parameters(), lr=self.lr, betas=self.betas)
         self.optimizer_d = torch.optim.Adam(self.discriminator.parameters(), lr=self.lr, betas=self.betas)
 
-        dataset = PokemonDataset()
-        self.dataloader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True,
-                                     pin_memory=True, num_workers=self.num_workers)
-        self.total_iterations = len(dataset) // self.batch_size
+        train_dataset = PokemonDataset(phase='train')
+        val_dataset = PokemonDataset(phase='val')
+        self.train_dataloader = DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True,
+                                           pin_memory=True, num_workers=self.num_workers)
+        self.val_dataloader = DataLoader(val_dataset, batch_size=self.batch_size, shuffle=True,
+                                         pin_memory=True, num_workers=self.num_workers)
+        self.total_iterations: int = len(train_dataset) // self.batch_size
 
         self.criterion = nn.BCEWithLogitsLoss()
         self.criterion_L1 = nn.L1Loss()
 
-        self.epoch = 0
+        self.epoch: int = 0
 
         subfolder_name = datetime.datetime.now().strftime("%d_%H-%M")
-        self.output_path = os.path.join('trained_models', subfolder_name)
+        self.output_path: str = os.path.join('trained_models', subfolder_name)
         self.save_param_file()
 
-    def train(self):
+    def train(self) -> None:
         self.generator.to(self.device)
         self.discriminator.to(self.device)
 
         for self.epoch in range(1, self.epochs+1):
-            for i, (poke_img_batch, edge_img_batch) in tqdm(enumerate(self.dataloader), total=self.total_iterations,
+            for i, (poke_img_batch, edge_img_batch) in tqdm(enumerate(self.train_dataloader),
+                                                            total=self.total_iterations,
                                                             desc=f"Epoch: {self.epoch}", unit="batches"):
                 global_step = self.epoch * self.total_iterations + i
 
@@ -104,34 +109,47 @@ class Trainer:
 
                 self.unfreeze_discriminators_params()
 
+            # We don't set the model to eval mode. Same as in the paper.
+            cumulative_loss = 0.0
+            for i, (poke_img_batch, edge_img_batch) in enumerate(self.train_dataloader):
+                with torch.no_grad():  # we don't need to track gradients during evaluation
+                    poke_img_batch = poke_img_batch.to(self.device)
+                    edge_img_batch = edge_img_batch.to(self.device)
+
+                    gen_imgs = self.generator(edge_img_batch)
+                    gen_l1_loss = self.criterion_L1(gen_imgs, poke_img_batch)
+
+                    cumulative_loss += gen_l1_loss
+
+            self.summary_writer.add_scalar("Generator validation L1 loss", cumulative_loss / len(self.train_dataloader),
+                                           self.epoch)
+
             if self.epoch % self.snapshot_n == 0:
                 self.save_model()
 
-    def freeze_discriminators_params(self):
+    def freeze_discriminators_params(self) -> None:
         for param in self.discriminator.parameters():
             param.requires_grad = False
 
-    def unfreeze_discriminators_params(self):
+    def unfreeze_discriminators_params(self) -> None:
         for param in self.discriminator.parameters():
             param.requires_grad = True
 
-    def save_param_file(self):
+    def save_param_file(self) -> None:
         """ Param file is used for trained models distinction.  """
         # Create subfolder structure if it doesn't exist
         Path(self.output_path).mkdir(parents=True, exist_ok=True)
 
         path = os.path.join(self.output_path, 'params.txt')
         with open(path, 'w') as f:
-            f.write(f'''
-            lr: {self.lr}
-            batch size: {self.batch_size}
-            lambda: {self.lambda_l1}
-            beta1: {self.betas[0]}
-            beta2: {self.betas[1]}
-            max epochs: {self.epochs}
-            ''')
+            f.write(f'lr: {self.lr} '
+                    f'batch size: {self.batch_size} '
+                    f'lambda: {self.lambda_l1} '
+                    f'beta1: {self.betas[0]} '
+                    f'beta2: {self.betas[1]} '
+                    f'max epochs: {self.epochs} ')
 
-    def save_model(self):
+    def save_model(self) -> None:
         filename = f'model_epoch_{self.epoch}.pt'
         path = os.path.join(self.output_path, filename)
 

@@ -6,9 +6,12 @@ from PIL import Image
 
 
 class PokemonDataset(Dataset):
-    def __init__(self, image_size: int = 256):
+    def __init__(self, image_size: int = 256, phase: str = 'train'):
+        if phase not in ['train', 'val']:
+            raise ValueError(f'Phase "{phase}" not supported. Currently supporting only "train" and "val".')
+
         self.image_size: int = image_size
-        dataset_root_path: str = './data'
+        dataset_root_path: str = os.path.join('data', phase)
         self.dataset_root_path = os.path.abspath(dataset_root_path)
 
         self.pokemons_root_path = os.path.join(self.dataset_root_path, 'pokemon_jpg')
@@ -24,7 +27,7 @@ class PokemonDataset(Dataset):
             transforms.ToTensor()
         ])
         self.edge_transforms = transforms.Compose([
-            transforms.Grayscale(num_output_channels=1),  # TODO: Proveriti
+            transforms.Grayscale(num_output_channels=1),
             transforms.ToTensor()
         ])
 
