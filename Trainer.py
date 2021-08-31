@@ -5,9 +5,12 @@ from typing import Tuple
 
 import torch
 import torch.nn as nn
+import wandb
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
+from PIL import Image
+import torchvision.transforms as transforms
 
 from dataset import PokemonDataset
 from models.PatchGAN import PatchGAN
@@ -48,6 +51,11 @@ class Trainer:
 
         self.epoch: int = 0
 
+        self.edge_transforms = transforms.Compose([
+            transforms.Grayscale(num_output_channels=1),
+            transforms.ToTensor()
+        ])
+
         subfolder_name = datetime.datetime.now().strftime("%d_%H-%M")
         self.output_path: str = os.path.join('trained_models', subfolder_name)
         self.save_param_file()
@@ -57,6 +65,7 @@ class Trainer:
         self.discriminator.to(self.device)
 
         for self.epoch in range(1, self.epochs+1):
+            global_step = 0  # wandb requires consistent global step
             for i, (poke_img_batch, edge_img_batch) in tqdm(enumerate(self.train_dataloader),
                                                             total=self.total_iterations,
                                                             desc=f"Epoch: {self.epoch}", unit="batches"):
@@ -79,6 +88,7 @@ class Trainer:
 
                 loss_d = (loss_d_fake + loss_d_real) * 0.5
                 self.summary_writer.add_scalar("Discriminator loss", loss_d, global_step)
+                wandb.log({'Discriminator loss': loss_d}, step=global_step)
 
                 loss_d.backward()
                 self.optimizer_d.step()
@@ -96,7 +106,7 @@ class Trainer:
                 loss_g_L1 = self.criterion_L1(gen_imgs, poke_img_batch)
                 loss_g = loss_g_GAN + self.lambda_l1 * loss_g_L1
                 self.summary_writer.add_scalar("Generator loss", loss_g, global_step)
-
+                wandb.log({'Generator loss': loss_g}, step=global_step)
                 loss_g.backward()
 
                 self.optimizer_g.step()
@@ -106,11 +116,15 @@ class Trainer:
                                                    global_step)
                     self.summary_writer.add_images("Generated images", gen_imgs[:self.max_summary_images],
                                                    global_step)
+                    og_images = wandb.Image(poke_img_batch[:self.max_summary_images])
+                    fake_images = wandb.Image(gen_imgs[:self.max_summary_images])
+                    wandb.log({'Original images': og_images, 'Fake images': fake_images}, step=global_step)
 
                 self.unfreeze_discriminators_params()
 
             # We don't set the model to eval mode. Same as in the paper.
             cumulative_loss = 0.0
+            gen_imgs = None
             for i, (poke_img_batch, edge_img_batch) in enumerate(self.train_dataloader):
                 with torch.no_grad():  # we don't need to track gradients during evaluation
                     poke_img_batch = poke_img_batch.to(self.device)
@@ -121,8 +135,18 @@ class Trainer:
 
                     cumulative_loss += gen_l1_loss
 
+            # Paint custom drawing
+            with Image.open('data/custom_sketch_1.png') as im:
+                im = torch.unsqueeze(self.edge_transforms(im), 0).to(self.device)
+                gen_img = self.generator(im)
+                wimg = wandb.Image(gen_img)
+                wandb.log({'Custom sketch': wimg}, step=global_step)
+
             self.summary_writer.add_scalar("Generator validation L1 loss", cumulative_loss / len(self.train_dataloader),
                                            self.epoch)
+            fake_val_images = wandb.Image(gen_imgs[:self.max_summary_images], caption='Validation images')
+            wandb.log({'Generator validation loss': cumulative_loss / len(self.train_dataloader),
+                       'Fake validation images': fake_val_images}, step=global_step)
 
             if self.epoch % self.snapshot_n == 0:
                 self.save_model()
